@@ -10,7 +10,7 @@ const P65 = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYF
 const PHOTOS = [P1, P5, P12, P18, P22, P30, P40, P65];
 const VISUAL_AGES = [1, 5, 12, 18, 22, 30, 40, 65];
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const CAREER = [
   { year: "May – Aug 2013", age: 20, visualAge: 1, role: "Inside Sales Intern", company: "The Herjavec Group", type: "work", description: "First taste of tech sales. Contacting suppliers, developing quotes, sharpening the sales funnel through follow-up meetings and cold calls.", tags: ["Sales", "Internship"] },
@@ -33,8 +33,76 @@ const CAREER = [
 
 function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 
+function StarField() {
+  const canvasRef = useRef(null);
+  const mouse = useRef({ x: 0.5, y: 0.5 });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    let animId;
+    const stars = [];
+    const COUNT = 120;
+
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener("resize", resize);
+
+    for (let i = 0; i < COUNT; i++) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.2 + 0.3,
+        baseAlpha: Math.random() * 0.5 + 0.1,
+        phase: Math.random() * Math.PI * 2,
+        speed: Math.random() * 0.3 + 0.05,
+        drift: (Math.random() - 0.5) * 0.15,
+      });
+    }
+
+    const onMove = (e) => {
+      mouse.current.x = e.clientX / window.innerWidth;
+      mouse.current.y = e.clientY / window.innerHeight;
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+
+    let t = 0;
+    const draw = () => {
+      t += 0.016;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const mx = (mouse.current.x - 0.5) * 12;
+      const my = (mouse.current.y - 0.5) * 12;
+
+      for (const s of stars) {
+        const twinkle = Math.sin(t * s.speed * 4 + s.phase) * 0.3 + 0.7;
+        const alpha = s.baseAlpha * twinkle;
+        const px = s.x + mx * (s.r * 0.8) + Math.sin(t * s.drift + s.phase) * 8;
+        const py = s.y + my * (s.r * 0.8) + Math.cos(t * s.drift * 0.7 + s.phase) * 5;
+        ctx.beginPath();
+        ctx.arc(px, py, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(232,200,114,${alpha})`;
+        ctx.fill();
+      }
+      animId = requestAnimationFrame(draw);
+    };
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", onMove);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }} />;
+}
+
 function PortraitMorph({ progress, portraits }) {
   const canvasRef = useRef(null);
+  const wrapRef = useRef(null);
+  const [tilt, setTilt] = useState({ rx: 0, ry: 0 });
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || portraits.length < 2) return;
@@ -61,25 +129,173 @@ function PortraitMorph({ progress, portraits }) {
       ctx.globalAlpha = 1;
     }; imgB.src = portraits[hi]; }; imgA.src = portraits[lo];
   }, [progress, portraits]);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onMove = (e) => {
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const rx = -((e.clientY - cy) / rect.height) * 14;
+      const ry = ((e.clientX - cx) / rect.width) * 14;
+      setTilt({ rx, ry });
+    };
+    const onLeave = () => setTilt({ rx: 0, ry: 0 });
+    el.addEventListener("mousemove", onMove, { passive: true });
+    el.addEventListener("mouseleave", onLeave);
+    return () => { el.removeEventListener("mousemove", onMove); el.removeEventListener("mouseleave", onLeave); };
+  }, []);
+
   return (
-    <div style={{ position: "relative" }}>
-      <canvas ref={canvasRef} style={{ width: "100%", maxWidth: 280, height: "auto", aspectRatio: "4/5", borderRadius: 6, border: "1px solid rgba(255,255,255,0.06)", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }} />
-      <div style={{ position: "absolute", inset: 0, borderRadius: 6, background: "radial-gradient(ellipse at center, transparent 60%, rgba(8,8,11,0.25) 100%)", pointerEvents: "none" }} />
+    <div ref={wrapRef} style={{ position: "relative", perspective: 600 }}>
+      <div style={{ transform: `rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`, transition: "transform 0.15s ease-out", transformStyle: "preserve-3d" }}>
+        <canvas ref={canvasRef} style={{ width: "100%", maxWidth: 280, height: "auto", aspectRatio: "4/5", borderRadius: 6, border: "1px solid rgba(255,255,255,0.06)", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }} />
+        <div style={{ position: "absolute", inset: 0, borderRadius: 6, background: "radial-gradient(ellipse at center, transparent 60%, rgba(8,8,11,0.25) 100%)", pointerEvents: "none" }} />
+      </div>
     </div>
   );
 }
 
-function TimelineItem({ item, isActive, onClick, innerRef }) {
-  const accent = item.type === "education" ? "#72B8E8" : item.type === "side" ? "#9BE872" : "#E8C872";
+const SKILL_TREE = [
+  { id: "sales", label: "Sales", icon: "⚔️", tier: 0, x: 50, y: 6, unlockAt: 0, maxLevel: 5, children: ["enterprise", "partnerships"] },
+  { id: "enterprise", label: "Enterprise", icon: "🏰", tier: 1, x: 22, y: 24, unlockAt: 3, maxLevel: 4, children: ["revops"] },
+  { id: "partnerships", label: "Partnerships", icon: "🤝", tier: 1, x: 78, y: 24, unlockAt: 1, maxLevel: 3, children: ["gtm"] },
+  { id: "revops", label: "RevOps", icon: "⚙️", tier: 2, x: 18, y: 44, unlockAt: 7, maxLevel: 5, children: ["leadership"] },
+  { id: "gtm", label: "GTM", icon: "🚀", tier: 2, x: 50, y: 42, unlockAt: 7, maxLevel: 4, children: ["leadership"] },
+  { id: "data", label: "Data", icon: "📊", tier: 2, x: 82, y: 44, unlockAt: 9, maxLevel: 3, children: ["ai"] },
+  { id: "leadership", label: "Leadership", icon: "👑", tier: 3, x: 32, y: 64, unlockAt: 10, maxLevel: 5, children: ["innovation"] },
+  { id: "ai", label: "AI & Tech", icon: "🧠", tier: 3, x: 68, y: 64, unlockAt: 12, maxLevel: 4, children: ["innovation"] },
+  { id: "innovation", label: "Innovation", icon: "✦", tier: 4, x: 50, y: 84, unlockAt: 14, maxLevel: 3, children: [] },
+];
+
+function getSkillLevel(skill, activeIndex) {
+  if (activeIndex < skill.unlockAt) return 0;
+  const progress = (activeIndex - skill.unlockAt) / (CAREER.length - 1 - skill.unlockAt);
+  return Math.min(skill.maxLevel, Math.max(1, Math.ceil(progress * skill.maxLevel)));
+}
+
+function SkillTree({ activeIndex }) {
+  const svgW = 340, svgH = 500;
+  const totalUnlocked = SKILL_TREE.filter(s => getSkillLevel(s, activeIndex) > 0).length;
+  const totalLevels = SKILL_TREE.reduce((sum, s) => sum + getSkillLevel(s, activeIndex), 0);
+  const maxLevels = SKILL_TREE.reduce((sum, s) => sum + s.maxLevel, 0);
+
   return (
-    <div ref={innerRef} onClick={onClick} style={{ padding: "22px 0", borderLeft: `2px solid ${isActive ? accent : "rgba(255,255,255,0.04)"}`, paddingLeft: 26, marginLeft: 12, cursor: "pointer", transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)", opacity: isActive ? 1 : 0.28, transform: isActive ? "translateX(0)" : "translateX(-2px)", position: "relative" }}>
-      <div style={{ position: "absolute", left: -6, top: 27, width: 10, height: 10, borderRadius: "50%", background: isActive ? accent : "rgba(255,255,255,0.06)", transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)", boxShadow: isActive ? `0 0 14px ${accent}44` : "none" }} />
+    <div className="skill-tree" style={{ display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, letterSpacing: "0.25em", color: "rgba(232,200,114,0.6)", textTransform: "uppercase", marginBottom: 10 }}>Skill Tree</div>
+      <div style={{ display: "flex", gap: 24, marginBottom: 16, fontFamily: "'JetBrains Mono',monospace" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 28, fontFamily: "'Playfair Display',serif", color: "#E8C872" }}>{totalUnlocked}<span style={{ fontSize: 14, color: "rgba(232,200,114,0.4)" }}>/{SKILL_TREE.length}</span></div>
+          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase" }}>Unlocked</div>
+        </div>
+        <div style={{ width: 1, background: "rgba(255,255,255,0.08)" }} />
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 28, fontFamily: "'Playfair Display',serif", color: "#E8C872" }}>{totalLevels}<span style={{ fontSize: 14, color: "rgba(232,200,114,0.4)" }}>/{maxLevels}</span></div>
+          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase" }}>Skill Pts</div>
+        </div>
+      </div>
+      <div style={{ flex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
+        <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", maxWidth: 340, height: "auto" }}>
+          {SKILL_TREE.map(skill => {
+            const sx = skill.x / 100 * (svgW - 40) + 20;
+            const sy = skill.y / 100 * (svgH - 40) + 20;
+            return skill.children.map(cid => {
+              const child = SKILL_TREE.find(s => s.id === cid);
+              if (!child) return null;
+              const cx = child.x / 100 * (svgW - 40) + 20;
+              const cy = child.y / 100 * (svgH - 40) + 20;
+              const parentLevel = getSkillLevel(skill, activeIndex);
+              const childLevel = getSkillLevel(child, activeIndex);
+              const lit = parentLevel > 0 && childLevel > 0;
+              return (
+                <line key={`${skill.id}-${cid}`} x1={sx} y1={sy} x2={cx} y2={cy}
+                  stroke={lit ? "rgba(232,200,114,0.4)" : "rgba(255,255,255,0.06)"}
+                  strokeWidth={lit ? 2 : 1}
+                  strokeDasharray={lit ? "none" : "4 4"}
+                  style={{ transition: "all 0.6s ease" }} />
+              );
+            });
+          })}
+          {SKILL_TREE.map(skill => {
+            const px = skill.x / 100 * (svgW - 40) + 20;
+            const py = skill.y / 100 * (svgH - 40) + 20;
+            const level = getSkillLevel(skill, activeIndex);
+            const unlocked = level > 0;
+            const fillPct = level / skill.maxLevel;
+            const nodeR = 24;
+            const circ = 2 * Math.PI * nodeR;
+            return (
+              <g key={skill.id} style={{ transition: "all 0.6s ease" }}>
+                {unlocked && <circle cx={px} cy={py} r={nodeR + 8}
+                  fill="none"
+                  stroke={`rgba(232,200,114,${0.08 + fillPct * 0.1})`}
+                  strokeWidth={1}
+                  style={{ transition: "all 0.6s ease" }} />}
+                <circle cx={px} cy={py} r={nodeR}
+                  fill={unlocked ? `rgba(232,200,114,${0.08 + fillPct * 0.18})` : "rgba(255,255,255,0.03)"}
+                  stroke={unlocked ? `rgba(232,200,114,${0.4 + fillPct * 0.5})` : "rgba(255,255,255,0.1)"}
+                  strokeWidth={unlocked ? 2 : 1}
+                  style={{ transition: "all 0.6s ease" }} />
+                {unlocked && <circle cx={px} cy={py} r={nodeR}
+                  fill="none"
+                  stroke="rgba(232,200,114,0.7)"
+                  strokeWidth={3}
+                  strokeDasharray={`${fillPct * circ} ${circ}`}
+                  strokeDashoffset={circ * 0.25}
+                  strokeLinecap="round"
+                  style={{ transition: "all 0.8s cubic-bezier(0.23,1,0.32,1)" }} />}
+                <text x={px} y={py + 1} textAnchor="middle" dominantBaseline="central"
+                  style={{ fontSize: 20, transition: "opacity 0.4s" }}
+                  opacity={unlocked ? 1 : 0.25}>{skill.icon}</text>
+                <text x={px} y={py + 36} textAnchor="middle"
+                  style={{ fontSize: 10, fontFamily: "'JetBrains Mono',monospace", letterSpacing: "0.06em", fontWeight: 500, fill: unlocked ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.18)", transition: "fill 0.4s" }}>
+                  {skill.label}
+                </text>
+                <text x={px} y={py + 47} textAnchor="middle"
+                  style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", fill: unlocked ? "rgba(232,200,114,0.6)" : "rgba(255,255,255,0.1)", transition: "fill 0.4s" }}>
+                  {unlocked ? `Lv.${level}/${skill.maxLevel}` : "Locked"}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function TimelineItem({ item, isActive, onClick, innerRef, index }) {
+  const accent = item.type === "education" ? "#72B8E8" : item.type === "side" ? "#9BE872" : "#E8C872";
+  const localRef = useRef(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = localRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setIsVisible(true); obs.disconnect(); }
+    }, { threshold: 0.15 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  const setRefs = useCallback((el) => {
+    localRef.current = el;
+    if (innerRef) innerRef(el);
+  }, [innerRef]);
+
+  const side = index % 2 === 0 ? -1 : 1;
+
+  return (
+    <div ref={setRefs} onClick={onClick} style={{ padding: "22px 0", borderLeft: `2px solid ${isActive ? accent : "rgba(255,255,255,0.08)"}`, paddingLeft: 26, marginLeft: 12, cursor: "pointer", transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)", opacity: isVisible ? (isActive ? 1 : 0.5) : 0, transform: isVisible ? (isActive ? "translateX(0)" : "translateX(-2px)") : `translateX(${side * 40}px)`, position: "relative" }}>
+      <div className={isActive ? "node-glow" : ""} style={{ "--glow-color": `${accent}55`, position: "absolute", left: -6, top: 27, width: 10, height: 10, borderRadius: "50%", background: isActive ? accent : "rgba(255,255,255,0.06)", transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)", boxShadow: isActive ? `0 0 14px ${accent}44` : "none" }} />
       {item.type !== "work" && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.14em", padding: "2px 7px", borderRadius: 2, background: `${accent}15`, color: `${accent}99`, border: `1px solid ${accent}20`, textTransform: "uppercase", marginBottom: 5, display: "inline-block" }}>{item.type === "education" ? "Education" : "Side Quest"}</span>}
-      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, letterSpacing: "0.12em", color: isActive ? `${accent}cc` : "rgba(255,255,255,0.15)", marginBottom: 5, transition: "color 0.4s", textTransform: "uppercase" }}>{item.year}</div>
-      <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: isActive ? 23 : 18, fontWeight: 400, color: isActive ? "#fff" : "rgba(255,255,255,0.3)", margin: "0 0 2px", transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)", lineHeight: 1.2 }}>{item.role}</h3>
-      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: isActive ? `${accent}aa` : "rgba(255,255,255,0.15)", marginBottom: 8, fontWeight: 500, transition: "color 0.4s" }}>{item.company}</div>
+      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, letterSpacing: "0.12em", color: isActive ? `${accent}` : "rgba(255,255,255,0.25)", marginBottom: 5, transition: "color 0.4s", textTransform: "uppercase" }}>{item.year}</div>
+      <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: isActive ? 23 : 18, fontWeight: 400, color: isActive ? "#fff" : "rgba(255,255,255,0.45)", margin: "0 0 2px", transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)", lineHeight: 1.2 }}>{item.role}</h3>
+      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: isActive ? `${accent}` : "rgba(255,255,255,0.25)", marginBottom: 8, fontWeight: 500, transition: "color 0.4s" }}>{item.company}</div>
       <div style={{ maxHeight: isActive ? 280 : 0, overflow: "hidden", transition: "max-height 0.6s cubic-bezier(0.23,1,0.32,1)" }}>
-        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.45)", margin: "0 0 8px" }}>{item.description}</p>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.6)", margin: "0 0 8px" }}>{item.description}</p>
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
           {item.tags.map(t => <span key={t} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 7px", borderRadius: 2, background: `${accent}0d`, color: `${accent}88`, border: `1px solid ${accent}15` }}>{t}</span>)}
         </div>
@@ -169,49 +385,55 @@ export default function InteractiveResume() {
         .tl-scroll::-webkit-scrollbar{width:4px}
         .tl-scroll::-webkit-scrollbar-track{background:transparent}
         .tl-scroll::-webkit-scrollbar-thumb{background:rgba(232,200,114,0.12);border-radius:4px}
-        @media(max-width:820px){
+        @keyframes gradient-shift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+        .shimmer-text{background:linear-gradient(90deg,#E8C872,#fff,#E8C872,#72B8E8,#E8C872);background-size:300% 100%;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:gradient-shift 6s ease infinite}
+        @keyframes node-pulse{0%,100%{box-shadow:0 0 14px var(--glow-color,rgba(232,200,114,0.27)),0 0 4px var(--glow-color,rgba(232,200,114,0.15))}50%{box-shadow:0 0 22px var(--glow-color,rgba(232,200,114,0.45)),0 0 8px var(--glow-color,rgba(232,200,114,0.3))}}
+        .node-glow{animation:node-pulse 2s ease-in-out infinite}
+        @media(max-width:1024px){
           .r-grid{grid-template-columns:1fr!important}
           .p-col{position:fixed!important;bottom:0;left:0;right:0;height:auto!important;flex-direction:row!important;padding:12px 20px!important;background:rgba(8,8,11,0.95)!important;backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,0.06);z-index:100;justify-content:space-between!important;align-items:center!important}
           .p-col canvas{max-width:60px!important}
           .p-col .side-quests{display:none!important}
           .p-col .age-display{font-size:32px!important}
           .p-col .extras{display:none!important}
-          .tl-scroll{padding-bottom:120px!important}
+          .sk-col{display:none!important}
+          .tl-scroll{padding-bottom:120px!important;border:none!important}
         }
       `}</style>
       <div style={{ minHeight: "100vh", background: "#08080B", color: "#fff", fontFamily: "'DM Sans',sans-serif", overflow: "hidden", position: "relative" }}>
+        <StarField />
         <div style={{ position: "fixed", inset: 0, background: "radial-gradient(ellipse 50% 40% at 20% 50%,rgba(232,200,114,0.025) 0%,transparent 70%),radial-gradient(ellipse 35% 50% at 85% 35%,rgba(100,140,200,0.02) 0%,transparent 70%)", pointerEvents: "none" }} />
         <div style={{ position: "fixed", inset: 0, opacity: 0.03, pointerEvents: "none", backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.85\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")' }} />
 
         <header style={{ padding: "32px 40px 0", position: "relative", zIndex: 10, opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(-16px)", transition: "all 0.8s cubic-bezier(0.23,1,0.32,1)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
             <div>
-              <h1 style={{ fontFamily: "'Playfair Display',serif", fontSize: 40, fontWeight: 400, margin: 0, letterSpacing: "-0.02em", lineHeight: 1.1 }}>Brendan Herjavec</h1>
-              <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, letterSpacing: "0.18em", color: "rgba(232,200,114,0.55)", marginTop: 6, textTransform: "uppercase" }}>Chief Innovation Officer · PlaySpace Health · Toronto</p>
+              <h1 className="shimmer-text" style={{ fontFamily: "'Playfair Display',serif", fontSize: 40, fontWeight: 400, margin: 0, letterSpacing: "-0.02em", lineHeight: 1.1 }}>Brendan Herjavec</h1>
+              <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, letterSpacing: "0.18em", color: "rgba(232,200,114,0.7)", marginTop: 6, textTransform: "uppercase" }}>Chief Innovation Officer · PlaySpace Health · Toronto</p>
             </div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "rgba(255,255,255,0.18)", textAlign: "right", lineHeight: 1.9 }}>
-              <div style={{ color: "rgba(232,200,114,0.35)" }}>1993 → {new Date().getFullYear()}</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "rgba(255,255,255,0.3)", textAlign: "right", lineHeight: 1.9 }}>
+              <div style={{ color: "rgba(232,200,114,0.5)" }}>1993 → {new Date().getFullYear()}</div>
               <div>{CAREER.length} chapters · A lifetime of building</div>
-              <div style={{ color: "rgba(255,255,255,0.12)", marginTop: 2 }}>↓ scroll to time travel</div>
+              <div style={{ color: "rgba(255,255,255,0.2)", marginTop: 2 }}>↓ scroll to time travel</div>
             </div>
           </div>
           <div style={{ marginTop: 18, height: 1, background: "linear-gradient(90deg,rgba(232,200,114,0.2),transparent 50%)" }} />
         </header>
 
-        <div className="r-grid" style={{ display: "grid", gridTemplateColumns: "320px 1fr", height: "calc(100vh - 110px)", padding: "0 40px", position: "relative", zIndex: 10 }}>
-          <div className="p-col" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 28px 16px 0", opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateX(0)" : "translateX(-20px)", transition: "all 1s cubic-bezier(0.23,1,0.32,1) 0.2s" }}>
+        <div className="r-grid" style={{ display: "grid", gridTemplateColumns: "280px 1fr 320px", height: "calc(100vh - 110px)", padding: "0 40px", position: "relative", zIndex: 10, gap: 0 }}>
+          <div className="p-col" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 20px 16px 0", opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateX(0)" : "translateX(-20px)", transition: "all 1s cubic-bezier(0.23,1,0.32,1) 0.2s" }}>
             <PortraitMorph progress={portraitProgress} portraits={PHOTOS} />
             <div style={{ marginTop: 18, textAlign: "center" }}>
               <div className="age-display" style={{ fontFamily: "'Playfair Display',serif", fontSize: 52, fontWeight: 400, color: "#E8C872", lineHeight: 1, transition: "all 0.3s" }}>{cur?.age}</div>
-              <div className="extras" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.25em", color: "rgba(255,255,255,0.18)", textTransform: "uppercase", marginTop: 2 }}>Years Old</div>
+              <div className="extras" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "0.25em", color: "rgba(255,255,255,0.3)", textTransform: "uppercase", marginTop: 2 }}>Years Old</div>
             </div>
-            <div className="extras" style={{ width: "85%", maxWidth: 210, height: 2, background: "rgba(255,255,255,0.04)", borderRadius: 1, marginTop: 18, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${scrollProgress * 100}%`, background: "linear-gradient(90deg,#E8C872,rgba(232,200,114,0.3))", transition: "width 0.1s ease-out" }} />
+            <div className="extras" style={{ width: "85%", maxWidth: 210, height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 2, marginTop: 18, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${scrollProgress * 100}%`, background: "linear-gradient(90deg,#E8C872,rgba(232,200,114,0.5))", transition: "width 0.1s ease-out" }} />
             </div>
-            <div className="extras" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "rgba(255,255,255,0.12)", marginTop: 6 }}>{activeIndex + 1} / {CAREER.length}</div>
-            <div className="side-quests" style={{ marginTop: 24, padding: "14px 18px", background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.03)", borderRadius: 4, width: "90%", maxWidth: 250 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: "0.2em", color: "rgba(232,200,114,0.35)", textTransform: "uppercase", marginBottom: 8 }}>Always Building</div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.28)", lineHeight: 1.85 }}>
+            <div className="extras" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "rgba(255,255,255,0.25)", marginTop: 6 }}>{activeIndex + 1} / {CAREER.length}</div>
+            <div className="side-quests" style={{ marginTop: 24, padding: "14px 18px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, width: "90%", maxWidth: 250 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: "0.2em", color: "rgba(232,200,114,0.5)", textTransform: "uppercase", marginBottom: 8 }}>Always Building</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 1.85 }}>
                 <div>🎙 "Going to the Market" Podcast</div>
                 <div>🏗 52-Week Build Challenge</div>
                 <div>🌿 Bonsai · Taisho-en, Japan</div>
@@ -221,10 +443,14 @@ export default function InteractiveResume() {
             </div>
           </div>
 
-          <div ref={timelineRef} className="tl-scroll" style={{ overflowY: "auto", paddingRight: 16, paddingTop: "35vh", paddingBottom: "60vh", opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateX(0)" : "translateX(20px)", transition: "all 1s cubic-bezier(0.23,1,0.32,1) 0.4s", scrollbarWidth: "thin", scrollbarColor: "rgba(232,200,114,0.12) transparent" }}>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: "0.25em", color: "rgba(255,255,255,0.12)", textTransform: "uppercase", marginBottom: 12, paddingLeft: 40 }}>Career Timeline · Scroll or Click</div>
-            {CAREER.map((item, i) => <TimelineItem key={i} item={item} isActive={i === activeIndex} onClick={() => handleClick(i)} innerRef={el => itemRefs.current[i] = el} />)}
-            <div style={{ paddingLeft: 40, paddingTop: 36, fontFamily: "'Playfair Display',serif", fontSize: 17, fontStyle: "italic", color: "rgba(232,200,114,0.18)" }}>Building what's next →</div>
+          <div ref={timelineRef} className="tl-scroll" style={{ overflowY: "auto", paddingRight: 16, paddingLeft: 16, paddingTop: "35vh", paddingBottom: "60vh", borderLeft: "1px solid rgba(255,255,255,0.04)", borderRight: "1px solid rgba(255,255,255,0.04)", opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(20px)", transition: "all 1s cubic-bezier(0.23,1,0.32,1) 0.4s", scrollbarWidth: "thin", scrollbarColor: "rgba(232,200,114,0.12) transparent" }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: "0.25em", color: "rgba(255,255,255,0.2)", textTransform: "uppercase", marginBottom: 12, paddingLeft: 40 }}>Career Timeline · Scroll or Click</div>
+            {CAREER.map((item, i) => <TimelineItem key={i} item={item} index={i} isActive={i === activeIndex} onClick={() => handleClick(i)} innerRef={el => itemRefs.current[i] = el} />)}
+            <div style={{ paddingLeft: 40, paddingTop: 36, fontFamily: "'Playfair Display',serif", fontSize: 17, fontStyle: "italic", color: "rgba(232,200,114,0.25)" }}>Building what's next →</div>
+          </div>
+
+          <div className="sk-col" style={{ padding: "24px 0 24px 20px", display: "flex", flexDirection: "column", opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateX(0)" : "translateX(20px)", transition: "all 1s cubic-bezier(0.23,1,0.32,1) 0.6s" }}>
+            <SkillTree activeIndex={activeIndex} />
           </div>
         </div>
       </div>
